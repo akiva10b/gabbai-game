@@ -248,7 +248,7 @@ function newGame(levelIdx) {
     L, levelIdx, speed, pace: progress.pace, people, slots, stages: L.stages.map(st => ({ ...st })), t: 0, stageIdx: -1, stage: null, stageT: 0, waiting: false, waitT: 0,
     shalom: 75, score: 0, errors: [], praise: [], log: [], reqHandled: 0, reqMissed: 0,
     gabbai: { x: 520, y: 160, path: [], speed: 235, target: null, carrying: null, repathT: 0, bob: 0 },
-    reqTimer: 6, misheberach: [], misheberachSaid: 0, announcements: [], hosafot: 0,
+    reqTimer: 6, haftarahPick: null, misheberach: [], misheberachSaid: 0, announcements: [], hosafot: 0,
     reading: null, torahsOnBimah: 0, candy: null, mistake: null, pasul: null, wrongSpot: null,
     scheduled: L.scheduled.map(s => ({ ...s, fired: false, tries: 0 })),
     particles: [], floaters: [], timers: [], tipsShown: new Set(), over: false, paused: false,
@@ -603,6 +603,10 @@ function startStage(i) {
       p.busy = true; p.state = 'walking'; walkTo(p, SPOT.oleh, true, () => { p.state = 'atBimah'; });
       if (p.tags.has('barmitzvah') && G.L.candy) startCandyMoment(p, 'haftarah');
     }
+    if (st.choice) {
+      G.haftarahPick = { st, waitT: 0 };
+      toast('📖 Which haftarah today? The maftir is waiting for you at the bimah.', 'tip'); Sound.alert();
+    }
   }
   if (st.type === 'speech') {
     const r = G.people.find(p => p.rabbi && present(p));
@@ -660,6 +664,12 @@ function updateStage(dt) {
     }
   }
   if (st.type === 'reading') { updateReading(dt); return; }
+  if (G.haftarahPick) {
+    const hp = G.haftarahPick; hp.waitT += dt;
+    if (hp.waitT > 5) { G.shalom = clamp(G.shalom - 1.0 * dt, 0, 100); G.score -= 3 * dt; }
+    if (atBimah() && !ui.popup && !hp.autoOpened) { hp.autoOpened = true; openPlacePopup('bimah'); }
+    return;
+  }
   G.stageT += dt;
   if (st.type === 'haftarah' && st._reader && !st._stumbled && G.stageT > stageDur(st) * 0.4) {
     st._stumbled = true;
@@ -697,7 +707,10 @@ function endStage() {
 
 // ---------- Torah reading ----------
 function startReading(st) {
-  G.reading = { calls: st.calls.slice(), idx: 0, phase: 'needCall', t: 0, waitT: 0, oleh: null, st, torah: 1, events: [] };
+  G.reading = { calls: st.calls.slice(), idx: 0, phase: 'needCall', t: 0, waitT: 0, oleh: null, st, torah: 1, events: [], extra: (st.extraTorahs || []).map(x => ({ ...x })) };
+  // hosafot the gabbai added before the reading began go in before the anchor aliyah
+  const hos = G.slots.filter(sl => sl.hosafa && !sl.done).map(sl => sl.id);
+  if (hos.length) G.reading.calls.splice(G.reading.calls.indexOf(hosafaAnchor()), 0, ...hos);
   G.torahsOnBimah = Math.max(G.torahsOnBimah, (G.stages.find(s => s.type === 'hotzaah') || {}).torahs || 1);
   // events tied to calls
   for (const ev of G.scheduled) if (!ev.fired && ev.call) G.reading.events.push(ev);
@@ -733,9 +746,11 @@ function onAliyahStart(slot, p) {
 function updateReading(dt) {
   const R = G.reading; const slot = currentCallSlot();
   // second Torah may need rolling
-  if (R.phase === 'needCall' && R.st.secondTorahAt && slot && slot.id === R.st.secondTorahAt && R.torah === 1) {
-    R.torah = 2;
-    if (Math.random() < (R.st.wrongSpot2 || 0)) startWrongSpot(G.L.parsha2 || 'Pinchas', 2);
+  // switching to the next Sefer Torah: it may be rolled to the wrong place
+  const nextT = R.extra[0];
+  if (R.phase === 'needCall' && nextT && slot && slot.id === nextT.at) {
+    R.extra.shift(); R.torah++;
+    if (Math.random() < (nextT.wrong || 0)) startWrongSpot(nextT.parsha, R.torah);
   }
   if (!slot) return endReading();
   // blocked / waiting penalties
@@ -782,19 +797,22 @@ function endReading() {
 }
 function addHosafa() {
   if (!G.L.shabbat || G.hosafot >= 3) return;
+  if (!G.reading && G.stageIdx > stageIndexOfType('reading')) return; // the reading is over
   const R = G.reading;
-  const sheviiIdxCalls = R ? R.calls.indexOf('shevii') : -1;
-  if (R && (sheviiIdxCalls < 0 || sheviiIdxCalls < R.idx || (sheviiIdxCalls === R.idx && R.phase !== 'needCall'))) { toast("Too late for hosafot: Shevi'i has already been called.", 'bad'); return; }
+  const anchor = hosafaAnchor();
+  const sheviiIdxCalls = R ? R.calls.indexOf(anchor) : -1;
+  if (R && (sheviiIdxCalls < 0 || sheviiIdxCalls < R.idx || (sheviiIdxCalls === R.idx && R.phase !== 'needCall'))) { toast(`Too late for hosafot: ${slotLabel(slotById(anchor))} has already been called.`, 'bad'); return; }
   G.hosafot++;
   const id = 'hosafa' + G.hosafot;
   const slot = { id, label: 'Hosafa ' + G.hosafot, kind: 'aliyah', rule: 'any', group: 'Aliyot', hosafa: true, assignee: null, done: false, doneBy: null, assignedAtStage: -1 };
-  const si = G.slots.findIndex(s => s.id === 'shevii');
+  const si = G.slots.findIndex(s => s.id === anchor);
   G.slots.splice(si, 0, slot);
-  if (R) R.calls.splice(R.calls.indexOf('shevii'), 0, id);
-  else { const rs = G.stages.find(s => s.type === 'reading'); rs._extra = (rs._extra || 0) + 1; }
+  if (R) R.calls.splice(R.calls.indexOf(anchor), 0, id);
   toast(`➕ Added ${slot.label}. Remember, every hosafa makes the service longer.`, '');
   ui.popupDirty = true;
 }
+/* Hosafot are added before the last aliyah read from the first Sefer Torah. */
+function hosafaAnchor() { return G.L.hosafaBefore || 'shevii'; }
 function removeHosafa(slot) {
   if (slot.done) return;
   G.slots.splice(G.slots.indexOf(slot), 1);
@@ -868,7 +886,7 @@ function startWrongSpot(target, torahNum) {
   let off = randi(3, 9) * (Math.random() < 0.5 ? -1 : 1);
   let cur = clamp(ti + off, 0, PARSHIYOT.length - 1); if (cur === ti) cur = ti + 4;
   G.wrongSpot = { target: ti, pos: cur + rand(-0.3, 0.3), vel: 0, torahNum: torahNum || 1 };
-  toast(`📜 The ${torahNum === 2 ? 'second ' : ''}Torah was rolled to Parshat ${PARSHIYOT[cur]}, but we need ${target}! Go to the bimah and roll it.`, 'bad');
+  toast(`📜 The ${['', '', 'second ', 'third '][torahNum || 1] || ''}Sefer Torah was rolled to Parshat ${PARSHIYOT[cur]}, but we need ${target}! Go to the bimah and roll it.`, 'bad');
   Sound.alert(); ui.popupDirty = true;
   if (G.L.hints || !G.tipsShown.has('wrongSpot')) tip('wrongSpot', '📜 Wrong spot! Walk to the bimah and choose "Roll the Torah".');
 }
@@ -1165,6 +1183,7 @@ function drawShul() {
     if (hagbahNow) { drawTorah(480, 268, true, false); }
     else drawTorah(480, 318, true, G.pasul);
     if (G.torahsOnBimah > 1) drawTorah(428, 316, false, false, 0.7);
+    if (G.torahsOnBimah > 2) drawTorah(428, 352, false, false, 0.6);
   }
   // bookshelf
   const sh = PLACES.shelf;
@@ -1278,6 +1297,7 @@ function drawHUD() {
   const st = G.stage; if (!st) return;
   let text = st.name, sub = '';
   if (G.waiting) sub = '⏳ WAITING FOR: ' + G.waiting.join(', ');
+  else if (G.haftarahPick) sub = `📖 Tell the maftir which haftarah to read${atBimah() ? '' : ' (go to the bimah!)'}`;
   else if (st.type === 'reading' && G.reading) {
     const s = currentCallSlot();
     if (G.wrongSpot) sub = '📜 Torah at the wrong spot! Roll it at the bimah';
@@ -1491,8 +1511,22 @@ function openPlacePopup(key, refresh) {
   if (!refresh) Sound.click();
   positionPopup(pl.spot.x, pl.spot.y - 60);
 }
+function chooseHaftarah(opt) {
+  const hp = G.haftarahPick; if (!hp) return;
+  G.haftarahPick = null;
+  if (opt.ok) reward(4, 120, `📖 ${opt.label}: correct! ${opt.why}`);
+  else penalty(8, `Wrong haftarah! ${opt.why}`);
+  closePopup(); ui.popupDirty = true;
+}
 function buildBimahPopup(pop) {
   const R = G.reading;
+  if (G.haftarahPick) {
+    const c = G.haftarahPick.st.choice;
+    const box = el('div', { class: 'req' }, el('div', null, '📖 ' + c.prompt));
+    const btns = el('div', { class: 'call-list' });
+    for (const o of c.options) btns.append(el('button', { onclick: () => chooseHaftarah(o) }, o.label));
+    box.append(btns); pop.append(box);
+  }
   if (G.mistake) pop.append(el('div', { class: 'req' }, el('div', null, '⚠️ The baal koreh misread a word!'), el('div', { class: 'btns' }, el('button', { class: 'go', onclick: correctReader }, '✋ Correct him!'))));
   if (G.pasul) {
     if (G.gabbai.carrying === 'torah') pop.append(el('div', { class: 'btns' }, el('button', { class: 'go', onclick: placeNewTorah }, '📜 Place the new Sefer Torah')));
@@ -1503,7 +1537,7 @@ function buildBimahPopup(pop) {
     pop.append(el('div', { class: 'req' }, el('div', null, `📜 The Torah is open at ${PARSHIYOT[Math.round(ws.pos)]}. We need ${PARSHIYOT[ws.target]}.`), el('div', { class: 'btns' }, el('button', { class: 'go', onclick: openScrollGame }, '🔄 Roll the Torah'))));
   }
   if (!R) {
-    pop.append(el('div', { class: 'note' }, 'The bimah. During Kriyat HaTorah, stand here to call each person up.'));
+    if (!G.haftarahPick) pop.append(el('div', { class: 'note' }, 'The bimah. During Kriyat HaTorah, stand here to call each person up.'));
     if (G.L.shabbat && G.hosafot < 3 && stageIndexOfType('reading') >= G.stageIdx) pop.append(el('div', { class: 'btns' }, el('button', { onclick: addHosafa }, '➕ Add a hosafa (extra aliyah)')));
     return;
   }
@@ -1532,7 +1566,7 @@ function buildBimahPopup(pop) {
     sec.append(el('div', { class: 'tiny' }, ap ? 'Or call someone else instead:' : ''), list);
     pop.append(sec);
   }
-  if (G.L.shabbat && G.hosafot < 3 && R.calls.indexOf('shevii') >= R.idx) pop.append(el('div', { class: 'btns', style: 'margin-top:6px' }, el('button', { onclick: addHosafa }, '➕ Add a hosafa (extra aliyah)')));
+  if (G.L.shabbat && G.hosafot < 3 && R.calls.indexOf(hosafaAnchor()) >= R.idx) pop.append(el('div', { class: 'btns', style: 'margin-top:6px' }, el('button', { onclick: addHosafa }, '➕ Add a hosafa (extra aliyah)')));
 }
 
 // ============================================================
@@ -1581,7 +1615,7 @@ function renderPanel() {
     if (!s.done && s.hosafa && !p) row.append(el('button', { class: 'x', title: 'Remove hosafa', onclick: () => removeHosafa(s) }, '🗑'));
     box.append(row);
   }
-  if (G.L.shabbat && G.hosafot < 3 && (!R || R.calls.indexOf('shevii') >= R.idx) && G.stageIdx <= rIdx) {
+  if (G.L.shabbat && G.hosafot < 3 && (!R || R.calls.indexOf(hosafaAnchor()) >= R.idx) && G.stageIdx <= rIdx) {
     box.append(el('div', { class: 'slot add' }, el('button', { onclick: addHosafa }, '➕ Add hosafa (extra aliyah)')));
   }
   const ex = $('p-extra');
@@ -1847,6 +1881,6 @@ requestAnimationFrame(frame);
 // debug hook for testing
 window.__gabbai = {
   get G() { return G; }, get progress() { return progress; }, ui, closePopup, LEVELS, startLevel, finishLevel, callUp, assign, slotById, personById, signalCandy,
-  fireScheduled, slotLabel, presence, doRequestAction, openScrollGame, scrollHere, correctReader, takeTorahFromAron, placeNewTorah, addHosafa, validate, setGabbaiTarget,
+  fireScheduled, slotLabel, presence, chooseHaftarah, doRequestAction, openScrollGame, scrollHere, correctReader, takeTorahFromAron, placeNewTorah, addHosafa, validate, setGabbaiTarget,
   step(sec) { for (let i = 0; i < sec * 30 && G && !G.over; i++) update(1 / 30); render(); renderPanel(); },
 };

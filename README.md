@@ -27,6 +27,7 @@ random events and curveballs.
 3. **Shabbat Morning**: 7 aliyot + Maftir, Haftarah, drasha, two Kohanim, a new father, seat fights.
 4. **Bar Mitzvah Shabbat**: too many relatives, hosafot, the candy signal, early-candy kids.
 5. **Shabbat Rosh Chodesh Mega-Simcha**: two Sifrei Torah, aufruf + bar mitzvah, a pasul Torah, a late Kohen.
+6. **Shabbat Rosh Chodesh Chanukah**: three Sifrei Torah, three hagbahs, full Hallel, and the gabbai has to pick the right haftarah.
 
 ## Files
 

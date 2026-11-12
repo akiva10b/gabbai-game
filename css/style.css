@@ -109,7 +109,7 @@ button.link { background: none; border: none; text-decoration: underline; color:
 .menu-inner h1 { font-size: 84px; margin: 0; letter-spacing: 6px; color: var(--gold); text-shadow: 0 4px 0 #6b4a0a, 0 8px 20px rgba(0,0,0,.6); font-family: Georgia, serif; }
 .tagline { font-size: 20px; margin-bottom: 26px; color: #f6ecd2; font-style: italic; }
 #level-cards { display: flex; gap: 14px; justify-content: center; }
-.lcard { width: 200px; min-height: 250px; background: var(--parch); color: var(--ink); border: 4px solid var(--wood-d); border-radius: 14px; padding: 12px; text-align: left; cursor: pointer; display: flex; flex-direction: column; transition: transform .15s; position: relative; }
+.lcard { width: 172px; min-height: 250px; background: var(--parch); color: var(--ink); border: 4px solid var(--wood-d); border-radius: 14px; padding: 12px; text-align: left; cursor: pointer; display: flex; flex-direction: column; transition: transform .15s; position: relative; }
 .lcard:hover { transform: translateY(-6px); }
 .lcard.locked { filter: grayscale(.9) brightness(.7); cursor: not-allowed; }
 .lcard.locked:hover { transform: none; }

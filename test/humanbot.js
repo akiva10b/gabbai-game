@@ -22,6 +22,7 @@ window.humanPlay = async function (levelIdx, opts = {}) {
   function pickTask() {
     const R = G().reading;
     if (G().candy && G().candy.phase === 'window') return { kind: 'candy' };
+    if (G().haftarahPick) { const opts = G().haftarahPick.st.choice.options; const o = opts.find(x => x.ok); return { kind: 'place', ref: 'bimah', act: () => H.chooseHaftarah(o) }; }
     if (G().pasul && G().pasul.stage === 'aron' && g().carrying !== 'torah') return { kind: 'place', ref: 'aron', act: () => H.takeTorahFromAron() };
     if (G().pasul && g().carrying === 'torah') return { kind: 'place', ref: 'bimah', act: () => H.placeNewTorah() };
     if (G().wrongSpot) return { kind: 'place', ref: 'bimah', act: () => { G().wrongSpot.pos = G().wrongSpot.target; busyT += 5; H.scrollHere(); } };

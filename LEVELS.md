@@ -93,6 +93,23 @@ davening running. Each level is a harder service.
 - **A late Kohen** shows up mid-service.
 - Someone you assigned has to leave early. The baal koreh misreads twice. Candy kids. Seat fights. Mi Shebeirachs. 🙋 surprises. Kiddush announcement.
 
+## Level 6 — "Shabbat Rosh Chodesh Chanukah" (complexity ●●●●●●)
+**What it contains:** Shabbat, Rosh Chodesh Tevet and Chanukah together, so **three Sifrei Torah** come out *(SA OC 684:3)*:
+1. **Torah 1:** six aliyot from the weekly parsha (Miketz).
+2. **Torah 2:** Shevi'i, the Rosh Chodesh reading starting "uveyom haShabbat" (rolled to Pinchas).
+3. **Torah 3:** Maftir, the Chanukah reading (rolled to Nasso).
+
+Each Torah gets its own hagbah and gelilah (three of each). Full Hallel, the haftarah, a drasha, and Musaf for Rosh Chodesh. Two chazzanim, a yahrzeit who wants the amud and an aliyah, a new father, guests, and an elderly Kohen.
+
+**Complexity:** 17 honors, three Torahs that may each be rolled to the wrong place, and hosafot only in the first Torah (before Shishi).
+
+**Random events:** Mi Shebeirach requests and 🙋 surprises.
+
+**Curveballs:**
+- **Which haftarah?** After Maftir, the gabbai must tell him: the parsha's ("Vayikatz Shlomo"), Shabbat Rosh Chodesh's ("HaShamayim Kis'i"), or Chanukah's ("Roni v'Simchi")? The answer is **Roni v'Simchi** *(SA OC 684:3)*.
+- The second and third Torahs are likely rolled to the wrong spot.
+- Someone assigned leaves during Hallel; the baal koreh misreads twice; a seat fight; a kiddush sponsor.
+
 ---
 
 ### Random events reference
@@ -107,5 +124,6 @@ davening running. Each level is a harder service.
 | 🍬 Early candy | kids during simcha moments | "Not yet!" |
 | ⚠️ Misread word | baal koreh (bimah) | correct him at the bimah |
 | ✋ Pasul Torah | Aron | bring another Torah from the Aron |
-| 📜 Wrong spot | bimah, at the start of a reading | roll the scroll to the right parsha (mini-game) |
+| 📜 Wrong spot | bimah, whenever a new Sefer Torah is opened | roll the scroll to the right parsha (mini-game) |
+| 📖 Which haftarah? | bimah, Level 6 | pick the right haftarah for the day |
 | 🔟 Minyan | the man at the door (L1) | ask him to join |
