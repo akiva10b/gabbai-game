@@ -1,8 +1,8 @@
 # GABBAI! Run the Shul
 
 A 2D shul-management game in the "restaurant dash" style. You're the gabbai. Hand out the
-kibbudim, call up the aliyot, fetch siddurim, shush the talkers, roll the Torah to the right
-parsha, and signal the candy at exactly the right moment.
+kibbudim without offending anyone, call up the aliyot, roll the Torah to the right parsha,
+and signal the candy at exactly the right moment.
 
 ## How to play
 
@@ -12,7 +12,8 @@ Double-click **`index.html`**. It runs in any modern browser with no install and
 
 - **Hover** a person to see his name, tribe (gold **K** = Kohen, blue **L** = Levi) and why he's here.
 - **Click** a person to walk over. His card lets you give an honor or handle his request.
-- **Click places:** bimah (call aliyot, add hosafot, roll the Torah), bookshelf, tallit rack, Aron Kodesh.
+- **Click places:** bimah (call aliyot, add hosafot, roll the Torah) and the Aron Kodesh.
+- **Chazan Speed:** start at one chazan (Leisurely). Every win adds a chazan, up to three (Lightning). Pick a slower speed on the menu any time.
 - **Esc** closes a card · **P** pauses · **C** signals candy · ← → / Space in the scroll mini-game.
 - On the menu, **Unlock all levels** lets you jump straight to any level.
 

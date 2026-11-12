@@ -163,3 +163,19 @@ button.link { background: none; border: none; text-decoration: underline; color:
 .scroll-controls .hold { font-size: 16px; padding: 9px 18px; }
 .shake { animation: shake .35s; }
 @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+
+/* Chazan Speed */
+#pace-picker { margin: -8px auto 18px; color: #f6ecd2; }
+.pace-title { font-family: Georgia, serif; font-size: 18px; color: var(--gold); letter-spacing: 1px; margin-bottom: 6px; }
+.pace-row { display: flex; gap: 10px; justify-content: center; }
+.pace { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 120px; padding: 6px 12px; position: relative; }
+.pace .pc svg { vertical-align: bottom; }
+.pace .pn { font-size: 13px; }
+.pace.on { background: linear-gradient(#fff3b0, #e8c55a); border-color: var(--gold); box-shadow: 0 0 0 3px rgba(217,165,32,.45); }
+.pace.locked { opacity: .5; }
+.pace .pl { position: absolute; right: 4px; top: 2px; font-size: 12px; }
+.pace-note { font-size: 13px; margin-top: 6px; font-style: italic; color: #cfd8ea; }
+.p-pace { display: inline-block; margin-left: 6px; vertical-align: middle; }
+.intro-pace svg { vertical-align: middle; }
+.paceup { text-align: center; background: #e7f1ff; border-radius: 10px; padding: 6px; margin: 8px 0 0; }
+.paceup svg { vertical-align: middle; }

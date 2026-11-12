@@ -152,8 +152,16 @@ let G = null;               // current game
 let ui = { screen: 'menu', hover: null, mouse: { x: 0, y: 0 }, popup: null, popupDirty: false };
 const canvas = $('shul'), ctx = canvas.getContext('2d');
 
-let progress = { unlocked: 1, stars: {} };
-try { const p = JSON.parse(localStorage.getItem('gabbai.progress')); if (p && p.unlocked) progress = p; } catch (e) { }
+let progress = { unlocked: 1, stars: {}, pace: 0, maxPace: 0 };
+try { const p = JSON.parse(localStorage.getItem('gabbai.progress')); if (p && p.unlocked) progress = Object.assign(progress, p); } catch (e) { }
+progress.pace = clamp(progress.pace | 0, 0, PACES.length - 1); progress.maxPace = clamp(Math.max(progress.maxPace | 0, progress.pace), 0, PACES.length - 1);
+
+/* A little chazan in a tallit, for the Chazan Speed scale. */
+function chazanSvg(on, size = 22) {
+  const c = on ? '#1f3a68' : '#c9b991', t = on ? '#fff' : '#efe6cf', sk = on ? '#f1c9a5' : '#e6dcc2';
+  return `<svg width="${size}" height="${size * 1.2}" viewBox="0 0 20 24" aria-hidden="true"><path d="M3 23 Q3 12 10 12 Q17 12 17 23Z" fill="${t}" stroke="${c}" stroke-width="1.2"/><rect x="3.6" y="17" width="12.8" height="1.4" fill="${c}"/><rect x="3.4" y="19.6" width="13.2" height="1" fill="${c}"/><circle cx="10" cy="7.5" r="4.2" fill="${sk}" stroke="${c}" stroke-width=".8"/><path d="M6.2 6.2 A4 4 0 0 1 13.8 6.2Z" fill="${c}"/><path d="M6.6 9 Q10 14.5 13.4 9" fill="${c}" opacity=".85"/></svg>`;
+}
+function chazanScale(n, size) { let h = ''; for (let i = 1; i <= PACES.length; i++) h += chazanSvg(i <= n, size); return h; }
 function saveProgress() { try { localStorage.setItem('gabbai.progress', JSON.stringify(progress)); } catch (e) { } }
 
 // ---------- people ----------
@@ -175,9 +183,9 @@ function makePerson(spec, usedNames) {
     name: (tags.has('rabbi') ? 'Rabbi ' : kid || first.startsWith('Zaidy') ? '' : 'Reb ') + first + ' ' + last,
     wants: (spec.wants || []).map(w => ({ w, done: false })),
     arriveAt: spec.arriveAt != null ? spec.arriveAt : (spec.arrive ? rand(spec.arrive[0], spec.arrive[1]) : 0),
-    noTallit: !!spec.noTallit, door: !!spec.door, rabbi: !!spec.rabbi,
+    door: !!spec.door, rabbi: !!spec.rabbi,
     x: SPOT.door.x, y: SPOT.door.y + 30, path: [], speed: kid ? 120 : 95, onArrive: null,
-    state: 'offstage', seat: null, req: null, honors: [], hasTallit: !spec.noTallit,
+    state: 'offstage', seat: null, req: null, honors: [], hasTallit: true,
     hat: !kid && Math.random() < 0.35, skin: pick(['#f1c9a5', '#e8b88f', '#d9a27a', '#c68b62', '#f5d2b3']),
     beard: tags.has('elderly') ? '#ddd' : (!kid && !spec.bm && Math.random() < 0.55 ? pick(['#3b2a1a', '#5a3d22', '#222', '#7a5a3a', '#999']) : null),
     shirt: pick(['#3b5b92', '#7a3b3b', '#3b7a52', '#7a6a3b', '#5b3b7a', '#2f6f7a']),
@@ -231,23 +239,24 @@ function newGame(levelIdx) {
     }
   }
   for (const p of people) if (!p.seat && !p.door) p.seat = freeSeat(p);
-  for (const p of people) p.arriveAt /= Math.pow(L.speed, 0.6);
+  const speed = L.speed * PACES[progress.pace].mult;
+  for (const p of people) p.arriveAt /= Math.pow(speed, 0.6);
 
   const slots = L.slots.map(id => ({ id, ...SLOT_DEFS[id], label: (L.slotLabels && L.slotLabels[id]) || SLOT_DEFS[id].label, assignee: null, done: false, doneBy: null, assignedAtStage: -1 }));
 
   G = {
-    L, levelIdx, people, slots, stages: L.stages.map(st => ({ ...st })), t: 0, stageIdx: -1, stage: null, stageT: 0, waiting: false, waitT: 0,
+    L, levelIdx, speed, pace: progress.pace, people, slots, stages: L.stages.map(st => ({ ...st })), t: 0, stageIdx: -1, stage: null, stageT: 0, waiting: false, waitT: 0,
     shalom: 75, score: 0, errors: [], praise: [], log: [], reqHandled: 0, reqMissed: 0,
     gabbai: { x: 520, y: 160, path: [], speed: 235, target: null, carrying: null, repathT: 0, bob: 0 },
     reqTimer: 6, misheberach: [], misheberachSaid: 0, announcements: [], hosafot: 0,
     reading: null, torahsOnBimah: 0, candy: null, mistake: null, pasul: null, wrongSpot: null,
     scheduled: L.scheduled.map(s => ({ ...s, fired: false, tries: 0 })),
-    particles: [], floaters: [], tipsShown: new Set(), over: false, paused: false,
+    particles: [], floaters: [], timers: [], tipsShown: new Set(), over: false, paused: false,
     parTime: 0, extraNpcs: [],
   };
   let par = 0;
   for (const st of L.stages) par += st.type === 'reading' ? st.calls.length * 11 : st.dur;
-  G.parTime = par / Math.pow(L.speed, 0.6) + 30;
+  G.parTime = par / Math.pow(speed, 0.6) + 30;
   // door guy for minyan
   const dg = people.find(p => p.door);
   if (dg) { dg.state = 'door'; dg.x = SPOT.doorGuy.x; dg.y = SPOT.doorGuy.y; dg.req = mkReq('minyan'); }
@@ -289,6 +298,7 @@ function validate(slot, p) {
       break;
     case 'hagbah':
       if (p.tags.has('elderly')) return `The Torah wobbled dangerously! ${p.name} is too frail for hagbah. Give it to someone with strong arms.`;
+      if (p.tags.has('badBack')) return `${p.name} TOLD you his back was killing him! He did hagbah anyway, groaning, and he's very hurt you didn't listen.`;
       break;
   }
   if (ALIYAH_KINDS.includes(slot.kind) || slot.hosafa) {
@@ -359,69 +369,49 @@ function spawnRandomRequest() {
   const st = G.stage; if (!st) return;
   const types = { ...G.L.events.types };
   const readingIdx = stageIndexOfType('reading');
-  const torahTime = ['hotzaah', 'reading', 'haftarah'].includes(st.type) || G.stageIdx === readingIdx - 1;
-  if (!torahTime) delete types.chumash;
-  if (G.stageIdx > readingIdx || (st.type === 'reading' && G.reading && G.reading.idx > G.reading.calls.length - 3)) delete types.misheberach;
-  if (st.type === 'speech') types.talk = (types.talk || 1) * 4;
-  if (st.type === 'arrival') { delete types.talk; delete types.phone; }
-  const entries = Object.entries(types); const total = entries.reduce((a, [, w]) => a + w, 0);
+  const lateInReading = st.type === 'reading' && G.reading && G.reading.idx > G.reading.calls.length - 3;
+  if (G.stageIdx > readingIdx || lateInReading) { delete types.misheberach; delete types.chiyuv; }
+  const entries = Object.entries(types); if (!entries.length) return;
+  const total = entries.reduce((a, [, w]) => a + w, 0);
   let r = Math.random() * total, type = entries[0][0];
   for (const [k, w] of entries) { r -= w; if (r <= 0) { type = k; break; } }
-  if (type === 'kid') {
-    const kids = G.people.filter(p => p.kid && canTakeReq(p));
-    if (!kids.length) return;
-    const k = pick(kids); k.req = mkReq('kid'); k.state = 'running'; runAround(k);
-    return;
-  }
-  const cands = G.people.filter(p => canTakeReq(p) && !p.kid);
+  const cands = G.people.filter(p => canTakeReq(p) && !p.kid && !p.rabbi);
   if (!cands.length) return;
-  if (type === 'talk') {
-    for (const a of shuffle(cands.slice())) {
-      const b = cands.find(o => o !== a && o.seat && a.seat && !o.seat.special && Math.abs(o.seat.y - a.seat.y) < 5 && Math.abs(o.seat.x - a.seat.x) < 60);
-      if (b) {
-        a.req = mkReq('talk', { partner: b.id }); b.req = mkReq('talk', { partner: a.id }); b.req.t = a.req.t;
-        if (G.L.hints) tip('talk', '💬 Two guys are schmoozing during davening. Walk over and shush them before Shalom drops.');
-        return;
-      }
-    }
+  if (type === 'chiyuv') {
+    const plain = cands.filter(p => !p.wants.length && chiyuvRank(p) === 0 && !p.honors.length && !p.tags.has('badBack') && !p.tags.has('elderly'));
+    if (!plain.length) return;
+    const p = pick(plain);
+    const chazanOpen = G.slots.some(s => s.kind === 'chazan' && !s.done);
+    const options = CHIYUV_NEWS.filter(n => !(n.weekdayOnly && G.L.shabbat) && !(n.want === 'amud' && !chazanOpen) && !(n.tag === 'guest' && p.tags.has('guest')));
+    const news = pick(options);
+    p.tags.add(news.tag);
+    if (news.want) p.wants.push({ w: news.want, done: false });
+    p.req = mkReq('chiyuv', { news });
+    toast(`🙋 ${p.name} is waving you over. He has news!`, '');
+    if (G.L.hints) tip('chiyuv', '🙋 Someone has news for the gabbai: a yahrzeit, a new baby, a bad back… Walk over and listen. It may change who should get which honor!');
     return;
   }
   const p = pick(cands);
   p.req = mkReq(type);
-  if (type === 'siddur' && G.L.hints) tip('siddur', '📕 Someone needs a siddur. Grab one from the BOOKSHELF (bottom-left), then bring it to him.');
-  if (type === 'page' && G.L.hints) tip('page', '❓ A bubble! Click the person to walk over and help. Watch the ring: that\'s his patience.');
-  if (type === 'misheberach' && G.L.hints) tip('mish', '🙏 A Mi Shebeirach request. Add the name before the Torah reading ends.');
-}
-function runAround(k) {
-  const pts = [{ x: 360, y: 220 }, { x: 590, y: 450 }, { x: 360, y: 620 }, { x: 600, y: 160 }, { x: 50, y: 400 }, { x: 610, y: 620 }, { x: 360, y: 420 }];
-  walkTo(k, pick(pts), false, () => { if (k.req && k.req.type === 'kid') runAround(k); });
+  if (type === 'misheberach' && G.L.hints) tip('mish', '🙏 A Mi Shebeirach request. Walk over and add the name before the Torah reading ends.');
 }
 function resolveReq(p, ok) {
   const r = p.req; if (!r) return;
   const def = REQ_DEFS[r.type];
-  if (r.type === 'talk') { const b = personById(r.data.partner); if (b && b.req && b.req.type === 'talk') b.req = null; }
   p.req = null;
   if (ok) {
     G.reqHandled++;
     reward(2, 30, null, p); Sound.pop();
-    if (r.type === 'kid') sendToSeat(p);
   } else {
     G.reqMissed++;
     const msgs = {
-      page: `${p.name} never found the page. He spent all of Shacharit on the wrong tefillah.`,
-      siddur: `${p.name} gave up waiting for a siddur and davened off his phone. On Shabbat?!`,
-      chumash: `${p.name} never got a chumash and dozed off during the reading.`,
-      tallit: `${p.name} sat there without a tallit the whole time.`,
-      talk: `The talking got so loud the Rabbi stopped and STARED.`,
-      phone: `The phone rang for a full minute. Everyone heard his ringtone.`,
-      kid: `${p.first} knocked over the siddur cart. Total chaos.`,
+      chiyuv: `${p.name} waved and waved, but the gabbai never came over. He feels ignored.`,
       misheberach: `${p.name}'s mother was left out of the Mi Shebeirach.`,
       kiddush: `The kiddush sponsor wasn't thanked. He is VERY upset.`,
       seat: `The makom kavua fight escalated. Two grown men, one seat, no shalom.`,
       candy: `Candy flew too early! The bar mitzvah boy got pelted mid-bracha.`,
     };
-    penalty(r.type === 'kiddush' ? 8 : r.type === 'candy' ? 8 : REQ_DEFS[r.type].noise ? 5 : 4, msgs[r.type] || 'A request expired.', p, r.type !== 'candy' && r.type !== 'kiddush');
-    if (r.type === 'kid') sendToSeat(p);
+    penalty(r.type === 'kiddush' ? 8 : r.type === 'candy' ? 8 : 4, msgs[r.type] || 'A request expired.', p, r.type !== 'candy' && r.type !== 'kiddush');
     if (r.type === 'seat') { const g = personById(r.data.guest); p.seat = freeSeat(p); sendToSeat(p); }
     if (r.type === 'candy' && G.candy) G.candy.spoiled = true;
   }
@@ -431,11 +421,6 @@ function resolveReq(p, ok) {
 function doRequestAction(p) {
   const r = p.req; if (!r) return;
   const def = REQ_DEFS[r.type];
-  if (def.need) {
-    if (G.gabbai.carrying !== def.need) { toast(`You need to bring a ${def.need} first (${def.need === 'tallit' ? 'tallit rack, bottom-right' : 'bookshelf, bottom-left'}).`, 'bad'); return; }
-    G.gabbai.carrying = null;
-    if (r.type === 'tallit') p.hasTallit = true;
-  }
   if (r.type === 'misheberach') G.misheberach.push(p.name);
   if (r.type === 'kiddush') G.announcements.push(`Kiddush sponsored by the ${p.last} family`);
   if (r.type === 'minyan') {
@@ -472,10 +457,6 @@ function updateRequests(dt) {
       resolveReq(p, false);
     }
   }
-  // noise drain
-  let noise = 0;
-  for (const p of G.people) if (p.req && REQ_DEFS[p.req.type].noise) noise += p.req.type === 'talk' ? 0.5 : 1;
-  if (noise) G.shalom = clamp(G.shalom - noise * 0.35 * dt, 0, 100);
   G.reqTimer -= dt;
   if (G.reqTimer <= 0) {
     G.reqTimer = (G.L.events.rate / spd(0.6)) * rand(0.6, 1.4);
@@ -492,16 +473,15 @@ function fireScheduled(ev) {
       if (!futureAliyot.length) { ev.tries++; return ev.tries > 12; }
       const s = pick(futureAliyot), p = personById(s.assignee);
       p.req = mkReq('leaving'); p.busy = true;
-      setTimeout(() => {
-        if (!G || G.over) return;
-        p.req = null;
+      later(2.5, () => {
+        p.req = null; p.busy = false;
         const lost = slotsOf(p).filter(x => !x.done);
         lost.forEach(x => x.assignee = null);
         if (p.seat && !p.seat.special) p.seat.taken = null;
         p.state = 'leaving'; walkTo(p, SPOT.door, true, () => { p.state = 'gone'; p.x = -100; });
         toast(`🚪 ${p.name} had to leave! ${lost.map(x => x.label).join(', ')} is now EMPTY. Refill it!`, 'bad');
         Sound.alert(); ui.popupDirty = true;
-      }, 2500);
+      });
       return true;
     }
     case 'seatFight': {
@@ -549,7 +529,7 @@ function updateScheduled() {
 
 // ---------- stages ----------
 function stageDur(st) { return st.dur / spd(0.6); }
-function spd(e) { return Math.pow(G.L.speed, e); }
+function spd(e) { return Math.pow(G.speed, e); }
 function startStage(i) {
   G.stageIdx = i; G.stage = G.stages[i]; G.stageT = 0; G.waiting = false; G.waitT = 0;
   const st = G.stage; if (!st) return finishLevel(false);
@@ -688,7 +668,7 @@ function currentCallSlot() { const R = G.reading; return R && slotById(R.calls[R
 function readingBlocked() { return G.wrongSpot || (G.pasul && G.reading && G.reading.phase === 'reading'); }
 function callDuration(slot) {
   const base = slot.kind === 'hagbah' ? 4 : slot.kind === 'gelilah' ? 5 : 9;
-  return base / Math.pow(G.L.speed, 0.7);
+  return base / spd(0.7);
 }
 function callUp(p) {
   const R = G.reading, slot = currentCallSlot();
@@ -730,7 +710,7 @@ function updateReading(dt) {
     const dur = callDuration(slot);
     for (const ev of R.events) {
       if (ev.fired || ev.call !== slot.id) continue;
-      if (ev.type === 'mistake' && R.t > dur * 0.35) { ev.fired = true; G.mistake = { t: REQ_DEFS.candy.base * 1.3 / Math.pow(G.L.speed, 0.4) }; toast('⚠️ The baal koreh misread a word! Get to the bimah and correct him!', 'bad'); Sound.alert(); ui.popupDirty = true; }
+      if (ev.type === 'mistake' && R.t > dur * 0.35) { ev.fired = true; G.mistake = { t: REQ_DEFS.candy.base * 1.3 / spd(0.4) }; toast('⚠️ The baal koreh misread a word! Get to the bimah and correct him!', 'bad'); Sound.alert(); ui.popupDirty = true; }
       if (ev.type === 'pasul' && R.t > dur * 0.5) { ev.fired = true; G.pasul = { stage: 'aron' }; toast('✋ STOP! A broken letter, the Torah is PASUL! Bring another Sefer Torah from the Aron Kodesh!', 'bad'); Sound.alert(); ui.popupDirty = true; }
     }
     if (G.pasul) return;
@@ -778,17 +758,22 @@ function removeHosafa(slot) {
 }
 function atBimah() { const b = PLACES.bimah, g = G.gabbai; return g.x > b.x - 12 && g.x < b.x + b.w + 12 && g.y > b.y - 12 && g.y < b.y + b.h + 12; }
 
+// ---------- game-clock timers (pause-safe) ----------
+function later(sec, fn) { G.timers.push({ t: sec, fn }); }
+function updateTimers(dt) {
+  for (const tm of G.timers.slice()) { tm.t -= dt; if (tm.t <= 0) { G.timers.splice(G.timers.indexOf(tm), 1); tm.fn(); } }
+}
+
 // ---------- candy ----------
 function startCandyMoment(p, at) {
   G.candy = { who: p.id, at, phase: 'pending', t: 0, spoiled: false };
   for (const ev of G.scheduled) if (ev.type === 'candyEarly' && ev.at === at && !ev.fired) {
     ev.fired = true;
-    setTimeout(() => {
-      if (!G || G.over) return;
+    later(1.5, () => {
       const kids = G.people.filter(k => k.kid && canTakeReq(k));
       if (!kids.length) return;
       const k = pick(kids); k.req = mkReq('candy'); toast(`🍬 ${k.first} is about to throw his candy early! Stop him!`, 'bad'); Sound.alert();
-    }, 1500);
+    });
   }
 }
 function openCandyWindow() {
@@ -939,9 +924,12 @@ function finishLevel(fired) {
   }
   const sh = Math.round(G.shalom);
   const stars = fired ? 0 : sh >= 85 ? 3 : sh >= 65 ? 2 : sh >= 40 ? 1 : 0;
+  G.pacedUp = false;
   if (stars > 0) {
     progress.stars[G.L.id] = Math.max(progress.stars[G.L.id] || 0, stars);
     progress.unlocked = Math.max(progress.unlocked, G.L.id + 1);
+    if (progress.pace < PACES.length - 1) { progress.pace++; G.pacedUp = true; }
+    progress.maxPace = Math.max(progress.maxPace, progress.pace);
     saveProgress();
   }
   showResults({ fired, stars, unmet, shalom: sh });
@@ -1021,7 +1009,6 @@ function updatePeople(dt) {
       p.state = 'arriving'; p.x = SPOT.door.x + rand(-10, 10); p.y = SPOT.door.y;
       walkTo(p, p.seat, true, () => {
         p.state = 'seated'; p.x = p.seat.x; p.y = p.seat.y;
-        if (p.noTallit && !p.hasTallit && !p.req) { p.req = mkReq('tallit'); if (G.L.hints) tip('tallit', '🧣 A guest forgot his tallit. Grab one from the TALLIT RACK (bottom-right) and bring it to him.'); }
       });
     }
     if (p.state === 'offstage' || p.state === 'gone') continue;
@@ -1041,6 +1028,7 @@ function update(dt) {
   updateRequests(dt);
   updateScheduled();
   updateCandy(dt);
+  updateTimers(dt);
   for (const pt of G.particles) { pt.t -= dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vy += 380 * dt; }
   G.particles = G.particles.filter(p => p.t > 0);
   for (const f of G.floaters) { f.t -= dt; f.y -= 24 * dt; }
@@ -1138,12 +1126,10 @@ function drawShul() {
   ctx.fillStyle = '#4a2e16'; ctx.fillRect(sh.x, sh.y, sh.w, sh.h);
   const cols = ['#7a1f2b', '#1f3a68', '#2e5d3a', '#7a5a1f', '#3d2a5a'];
   for (let i = 0; i < 26; i++) { ctx.fillStyle = cols[i % 5]; ctx.fillRect(sh.x + 4 + i * 5.2, sh.y + 5, 4.4, 17); ctx.fillRect(sh.x + 4 + ((i * 7) % 26) * 5.2, sh.y + 26, 4.4, 17); }
-  label('📚 Siddurim & Chumashim', sh.x + sh.w / 2, sh.y - 6);
   // tallit rack
   const rk = PLACES.rack;
   ctx.fillStyle = '#4a2e16'; ctx.fillRect(rk.x, rk.y + 4, rk.w, 6);
   for (let i = 0; i < 8; i++) { ctx.fillStyle = '#f7f3ea'; ctx.fillRect(rk.x + 6 + i * 15, rk.y + 10, 12, 34); ctx.fillStyle = '#222'; ctx.fillRect(rk.x + 6 + i * 15, rk.y + 30, 12, 2); ctx.fillRect(rk.x + 6 + i * 15, rk.y + 35, 12, 2); }
-  label('🧣 Tallitot', rk.x + rk.w / 2, rk.y - 6);
   // pews
   for (const ry of ROW_Y) for (const bx of BLOCK_X) {
     ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fillRect(bx + 3, ry + 4, PEW_W, 18);
@@ -1336,7 +1322,7 @@ function drawGabbai() {
   drawPerson({ x: g.x, y: g.y, path: g.path, bob: g.bob, kid: false, tags: new Set(), id: 0, skin: '#f1c9a5', beard: '#5a3d22' }, true);
   ctx.fillStyle = '#1f3a68'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('GABBAI', g.x, g.y + 22);
   if (g.carrying) {
-    const icon = { siddur: '📕', chumash: '📘', tallit: '🧣', torah: '📜' }[g.carrying];
+    const icon = { torah: '📜' }[g.carrying];
     ctx.font = '18px sans-serif'; ctx.fillText(icon, g.x + 16, g.y - 22);
   }
 }
@@ -1387,7 +1373,7 @@ function openPersonCard(p, refresh) {
   pop.append(el('h3', null, tribeBadge(p), p.name));
   const tags = el('div', { class: 'tags' });
   tags.append(el('span', { class: 'tag ' + (p.kid ? '' : p.tribe) }, p.kid ? 'Under bar mitzvah' : p.tribe === 'kohen' ? 'Kohen' : p.tribe === 'levi' ? 'Levi' : 'Yisrael'));
-  for (const t of p.tags) if (TAG_INFO[t] && t !== 'kid') tags.append(el('span', { class: 'tag' + (['yahrzeit', 'barmitzvah', 'chatan', 'newFather'].includes(t) ? ' chiyuv' : '') }, TAG_INFO[t].icon + ' ' + TAG_INFO[t].label));
+  for (const t of p.tags) if (TAG_INFO[t] && t !== 'kid') tags.append(el('span', { class: 'tag' + (['yahrzeit', 'barmitzvah', 'chatan', 'newFather', 'aveil', 'badBack'].includes(t) ? ' chiyuv' : '') }, TAG_INFO[t].icon + ' ' + TAG_INFO[t].label));
   pop.append(tags);
   if (p.wants.length) {
     const wd = el('div', { class: 'wants' });
@@ -1397,13 +1383,11 @@ function openPersonCard(p, refresh) {
   // request
   if (p.req) {
     const r = p.req, def = REQ_DEFS[r.type];
-    const box = el('div', { class: 'req' }, el('div', null, def.icon + ' ' + def.text));
+    const box = el('div', { class: 'req' }, el('div', null, def.icon + ' ' + (r.type === 'chiyuv' ? r.data.news.text : def.text)));
     if (r.type === 'leaving') { }
     else if (r.type === 'seat' && r.data.isGuestSide) box.append(el('div', { class: 'btns' }, el('button', { class: 'go', onclick: () => doRequestAction(personById(r.data.regular) || p) }, def.action)));
     else if (def.action) {
-      const need = def.need && G.gabbai.carrying !== def.need;
-      box.append(el('div', { class: 'btns' }, el('button', { class: need ? '' : 'go', onclick: () => doRequestAction(p) }, def.action)));
-      if (need) box.append(el('div', { class: 'hint' }, `You're not carrying a ${def.need}. Get one from the ${def.need === 'tallit' ? 'tallit rack (bottom-right)' : 'bookshelf (bottom-left)'}.`));
+      box.append(el('div', { class: 'btns' }, el('button', { class: 'go', onclick: () => doRequestAction(p) }, def.action)));
     }
     pop.append(box);
   }
@@ -1450,13 +1434,7 @@ function openPlacePopup(key, refresh) {
   const pl = PLACES[key];
   pop.append(el('h3', null, pl.label));
   const g = G.gabbai;
-  if (key === 'shelf') {
-    pop.append(el('div', { class: 'note' }, g.carrying ? `You're carrying a ${g.carrying}.` : 'Pick something up to deliver.'));
-    pop.append(el('div', { class: 'btns' },
-      el('button', { onclick: () => { g.carrying = 'siddur'; Sound.pop(); closePopup(); } }, '📕 Take a Siddur'),
-      el('button', { onclick: () => { g.carrying = 'chumash'; Sound.pop(); closePopup(); } }, '📘 Take a Chumash')));
-  } else if (key === 'rack') {
-    pop.append(el('div', { class: 'btns' }, el('button', { onclick: () => { g.carrying = 'tallit'; Sound.pop(); closePopup(); } }, '🧣 Take a Tallit')));
+  if (false) {
   } else if (key === 'aron') {
     if (G.pasul && G.pasul.stage === 'aron') pop.append(el('div', { class: 'btns' }, el('button', { class: 'go', onclick: takeTorahFromAron }, '📜 Take out another Sefer Torah')));
     else pop.append(el('div', { class: 'note' }, 'The Aron Kodesh. Whoever gets petichah opens it during Hotza\'at HaTorah.'));
@@ -1518,7 +1496,7 @@ function buildBimahPopup(pop) {
 let panelSig = '';
 function renderPanel() {
   if (!G) return;
-  $('p-level').textContent = `Level ${G.L.id} · ${G.L.title}`;
+  if ($('p-level').dataset.lv !== G.L.id + '-' + G.pace) { $('p-level').dataset.lv = G.L.id + '-' + G.pace; $('p-level').innerHTML = `Level ${G.L.id} · ${G.L.title}<div class="p-pace" title="Chazan Speed: ${PACES[G.pace].name}">${chazanScale(PACES[G.pace].chazans, 13)}</div>`; }
   const st = G.stage;
   $('p-stage').innerHTML = st ? (G.waiting ? `<span class="wait">⏳ ${st.name}: waiting for ${G.waiting.join(', ')}</span>` : `Now: <b>${st.name}</b>`) : '';
   $('p-shalom-fill').style.width = G.shalom + '%';
@@ -1562,8 +1540,7 @@ function renderPanel() {
     box.append(el('div', { class: 'slot add' }, el('button', { onclick: addHosafa }, '➕ Add hosafa (extra aliyah)')));
   }
   const ex = $('p-extra');
-  const carry = G.gabbai.carrying ? { siddur: '📕 Siddur', chumash: '📘 Chumash', tallit: '🧣 Tallit', torah: '📜 Sefer Torah' }[G.gabbai.carrying] : 'nothing';
-  ex.innerHTML = `🤲 Carrying: <b>${carry}</b><br>🙏 Mi Shebeirach list: <b>${G.misheberach.length}</b> &nbsp; 📣 Announcements: <b>${G.announcements.length}</b>`;
+  ex.innerHTML = `${G.gabbai.carrying === 'torah' ? '🤲 Carrying: <b>📜 a Sefer Torah</b><br>' : ''}🙏 Mi Shebeirach list: <b>${G.misheberach.length}</b> &nbsp; 📣 Announcements: <b>${G.announcements.length}</b>`;
 }
 
 // ============================================================
@@ -1581,11 +1558,25 @@ function showMenu() {
   LEVELS.forEach((L, i) => {
     const locked = !unlockAll && L.id > progress.unlocked;
     const c = el('div', { class: 'lcard' + (locked ? ' locked' : '') });
-    c.innerHTML = `${locked ? '<span class="lock">🔒</span>' : ''}<div class="num">LEVEL ${L.id}</div><div class="t">${L.title}</div><div class="s">${L.subtitle}</div><div class="spd">Speed ${L.speed.toFixed(2)}×</div><div class="stars">${starsHtml(progress.stars[L.id] || 0)}</div>`;
+    c.innerHTML = `${locked ? '<span class="lock">🔒</span>' : ''}<div class="num">LEVEL ${L.id}</div><div class="t">${L.title}</div><div class="s">${L.subtitle}</div><div class="spd">Complexity ${'●'.repeat(L.id)}${'○'.repeat(LEVELS.length - L.id)}</div><div class="stars">${starsHtml(progress.stars[L.id] || 0)}</div>`;
     c.addEventListener('click', () => { if (!locked) { Sound.init(); Sound.click(); showIntro(i); } });
     box.append(c);
   });
+  renderPacePicker();
   showScreen('screen-menu');
+}
+function renderPacePicker() {
+  const box = $('pace-picker'); box.innerHTML = '';
+  box.append(el('div', { class: 'pace-title' }, 'Chazan Speed'));
+  const row = el('div', { class: 'pace-row' });
+  PACES.forEach((P, i) => {
+    const locked = i > progress.maxPace && !$('chk-unlock').checked;
+    const b = el('button', { class: 'pace' + (i === progress.pace ? ' on' : '') + (locked ? ' locked' : ''), title: locked ? 'Win a level to unlock' : P.blurb, disabled: locked });
+    b.innerHTML = `<span class="pc">${chazanScale(P.chazans, 24)}</span><span class="pn">${P.name}</span>${locked ? '<span class="pl">🔒</span>' : ''}`;
+    b.addEventListener('click', () => { progress.pace = i; saveProgress(); Sound.init(); Sound.click(); renderPacePicker(); });
+    row.append(b);
+  });
+  box.append(row, el('div', { class: 'pace-note' }, `${PACES[progress.pace].blurb} Every win adds a chazan.`));
 }
 function showIntro(i) {
   const L = LEVELS[i];
@@ -1593,7 +1584,7 @@ function showIntro(i) {
   const order = L.stages.map(s => s.name).join(' → ');
   const slots = L.slots.map(id => (L.slotLabels && L.slotLabels[id]) || SLOT_DEFS[id].label);
   $('intro-content').innerHTML = `
-    <div class="tiny">LEVEL ${L.id} · Speed ${L.speed.toFixed(2)}×</div>
+    <div class="tiny intro-pace">LEVEL ${L.id} · Chazan Speed ${chazanScale(PACES[progress.pace].chazans, 14)} ${PACES[progress.pace].name}</div>
     <h1>${L.title}</h1>
     <div class="sub">${L.blurb}</div>
     <b>What's new:</b>
@@ -1647,6 +1638,7 @@ function showResults(r) {
       ${next && r.stars > 0 ? `<button class="big go" id="r-next">Next: ${next.title} ▶</button>` : ''}
       <button id="r-menu">Menu</button>
     </div>
+    ${G.pacedUp ? `<p class="paceup">⏩ Chazan Speed up! Next time: ${chazanScale(PACES[progress.pace].chazans, 16)} <b>${PACES[progress.pace].name}</b>. ${PACES[progress.pace].blurb}</p>` : ''}
     ${!next && r.stars > 0 ? '<p style="text-align:center"><b>🏆 You finished every level! You are a true Gabbai Rishon.</b></p>' : ''}`;
   $('r-retry').onclick = () => showIntro(G.levelIdx);
   if ($('r-next')) $('r-next').onclick = () => showIntro(G.levelIdx + 1);
@@ -1662,7 +1654,7 @@ function showHelp(which) {
   <ul>
     <li><b>Hover</b> over a person to see his name, tribe (gold <b>K</b> = Kohen, blue <b>L</b> = Levi) and why he's here today.</li>
     <li><b>Click</b> a person: the gabbai walks over and opens his card. Give him an honor, or handle his request bubble.</li>
-    <li><b>Click places:</b> the bimah (call aliyot, add hosafot), the bookshelf (siddurim/chumashim), the tallit rack, the Aron Kodesh.</li>
+    <li><b>Click places:</b> the bimah (call aliyot, add hosafot, roll the Torah) and the Aron Kodesh.</li>
     <li>The <b>Clipboard</b> on the right shows every honor and who you've asked. ✕ unassigns.</li>
     <li><b>Esc</b> closes a card · <b>P</b> pauses · <b>C</b> signals candy.</li>
   </ul>
@@ -1672,16 +1664,16 @@ function showHelp(which) {
     <li>During Kriyat HaTorah you must <b>stand at the bimah</b> to call each aliyah. The baal koreh waits, and so does everyone else.</li>
     <li>Assign <b>Maftir</b> before the Torah comes out, so he can prepare the haftarah (unless he's marked 📜).</li>
   </ul>
-  <h3>💬 Bubbles</h3>
+  <h3>🙋 Bubbles</h3>
   <table><tr><th>Bubble</th><th>What to do</th></tr>
-    <tr><td>❓ Page?</td><td>Walk over and tell him</td></tr>
-    <tr><td>📕 📘 🧣</td><td>Fetch from the bookshelf / tallit rack first, then deliver</td></tr>
-    <tr><td>💬 📱 🏃</td><td>Noise! Shush them. Shalom drains until you do</td></tr>
+    <tr><td>🙋 News</td><td>Someone has news: a yahrzeit, a new baby, a visit, a bad back, a mourner who wants the amud. Listen, then rethink the Clipboard</td></tr>
     <tr><td>🙏 Mi Shebeirach</td><td>Add the name before the reading ends</td></tr>
     <tr><td>🍷 Kiddush</td><td>Add it to the announcements</td></tr>
     <tr><td>💺 Seat fight</td><td>Move the guest</td></tr>
     <tr><td>🍬 Early candy</td><td>Stop the kid!</td></tr>
   </table>
+  <h3>🎤 Chazan Speed</h3>
+  <p>The whole service runs at a speed of one, two or three chazans. You start with one (Leisurely). Every win adds a chazan, up to three (Lightning). You can always pick a slower speed on the menu.</p>
   <h3>⭐ Stars</h3>
   <p>Your stars come from your final Shalom: ★ 40+, ★★ 65+, ★★★ 85+. Disappointed chiyuvim (yahrzeit, bar mitzvah, chatan, new father, guests) cost Shalom at the end. If Shalom hits 0, you're fired.</p>`;
   const cheat = `
@@ -1735,7 +1727,7 @@ function hitTest(pt) {
     if (d < bd) { bd = d; best = p; }
   }
   if (best) return { kind: 'person', ref: best };
-  for (const k in PLACES) { const pl = PLACES[k]; if (pt.x >= pl.x && pt.x <= pl.x + pl.w && pt.y >= pl.y && pt.y <= pl.y + pl.h) return { kind: 'place', ref: k }; }
+  for (const k in PLACES) { if (k === 'shelf' || k === 'rack') continue; const pl = PLACES[k]; if (pt.x >= pl.x && pt.x <= pl.x + pl.w && pt.y >= pl.y && pt.y <= pl.y + pl.h) return { kind: 'place', ref: k }; }
   return null;
 }
 canvas.addEventListener('mousemove', e => {
@@ -1809,7 +1801,7 @@ requestAnimationFrame(frame);
 
 // debug hook for testing
 window.__gabbai = {
-  get G() { return G; }, ui, closePopup, LEVELS, startLevel, finishLevel, callUp, assign, slotById, personById, signalCandy,
+  get G() { return G; }, get progress() { return progress; }, ui, closePopup, LEVELS, startLevel, finishLevel, callUp, assign, slotById, personById, signalCandy,
   doRequestAction, openScrollGame, scrollHere, correctReader, takeTorahFromAron, placeNewTorah, addHosafa, validate, setGabbaiTarget,
   step(sec) { for (let i = 0; i < sec * 30 && G && !G.over; i++) update(1 / 30); render(); renderPanel(); },
 };

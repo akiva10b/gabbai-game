@@ -46,13 +46,7 @@ const SLOT_DEFS = {
 
 /* Bubble requests */
 const REQ_DEFS = {
-  page:        { icon: '❓', text: '"What page are we on?"', action: 'Tell him the page', base: 16 },
-  siddur:      { icon: '📕', text: '"Excuse me, I need a siddur."', need: 'siddur', action: 'Hand over a siddur', base: 24 },
-  chumash:     { icon: '📘', text: '"Is there a chumash for me?"', need: 'chumash', action: 'Hand over a chumash', base: 24 },
-  tallit:      { icon: '🧣', text: '"I forgot my tallit…"', need: 'tallit', action: 'Hand over a tallit', base: 28 },
-  talk:        { icon: '💬', text: '(chatting loudly about the ballgame)', action: 'Shhh!', base: 14, noise: true },
-  phone:       { icon: '📱', text: '(phone ringing… loudly)', action: 'Silence that phone!', base: 9, noise: true },
-  kid:         { icon: '🏃', text: '(running laps around the shul)', action: 'Back to your seat!', base: 14, noise: true },
+  chiyuv:      { icon: '🙋', text: '', action: "Thanks for telling me, I'll take care of you", base: 22 },
   misheberach: { icon: '🙏', text: '"Can you add my mother to the Mi Shebeirach for cholim?"', action: 'Add to the Mi Shebeirach list', base: 30 },
   kiddush:     { icon: '🍷', text: '"Please announce that we\'re sponsoring kiddush!"', action: 'Add to the announcements', base: 45 },
   seat:        { icon: '💺', text: '"Someone is sitting in my seat! I\'ve sat there for 30 years!"', action: 'Move the guest to a free seat', base: 22 },
@@ -60,6 +54,17 @@ const REQ_DEFS = {
   leaving:     { icon: '🚪', text: '"Sorry, gabbai, I have to run. Emergency!"', base: 3 },
   minyan:      { icon: '🔟', text: '"Do you even have a minyan? I might just go…"', action: "Please stay, you're our 10th!", base: 9999 },
 };
+
+/* Surprise news a congregant tells the gabbai mid-service (the 🙋 bubble).
+   Each one changes who deserves what, so the Clipboard may need rethinking. */
+const CHIYUV_NEWS = [
+  { tag: 'yahrzeit',  want: 'aliyah', text: '"Gabbai, I just realized: today is my father\'s yahrzeit. Could I get an aliyah?"' },
+  { tag: 'newFather', want: 'aliyah', text: '"Mazel tov to me! My wife had a baby girl last night. I want to name her today."' },
+  { tag: 'guest',     want: 'honor',  text: '"Shalom! I\'m visiting from out of town for the weekend." (A guest should be honored.)' },
+  { tag: 'badBack',   want: null,     text: '"Whatever you do, gabbai, please, no hagbah for me today. My back is killing me."' },
+  { tag: 'aveil',     want: 'amud',   text: '"I\'m saying kaddish for my mother this year. If there\'s any chance I could lead…"', weekdayOnly: true },
+];
+
 
 const TAG_INFO = {
   kohen:        { icon: 'K', label: 'Kohen' },
@@ -70,6 +75,8 @@ const TAG_INFO = {
   barmitzvah:   { icon: '🎉', label: 'Bar Mitzvah boy!' },
   chatan:       { icon: '💍', label: 'Chatan (aufruf)' },
   newFather:    { icon: '👶', label: 'New father, naming his daughter' },
+  aveil:        { icon: '🖤', label: 'Aveil (mourner), wants to lead' },
+  badBack:      { icon: '🩹', label: 'Bad back: no hagbah!' },
   guest:        { icon: '🧳', label: 'Guest' },
   elderly:      { icon: '👴', label: 'Elderly' },
   kid:          { icon: '🧒', label: 'Under bar mitzvah' },
@@ -86,6 +93,14 @@ const WANT_LABEL = { amud: 'Lead davening at the amud', aliyah: 'An aliyah', maf
    Stage types: arrival | prayer | hotzaah | reading | haftarah | speech
    Durations are base seconds (divided by level speed).
    ============================================================ */
+/* CHAZAN SPEED: a scale of three chazans. You start at one chazan; every win moves you up one.
+   A level's real speed = its own complexity factor (LEVELS[i].speed) × the chazan multiplier. */
+const PACES = [
+  { chazans: 1, name: 'Leisurely', mult: 0.65, blurb: 'The chazan who sings every word. Time to think.' },
+  { chazans: 2, name: 'Regular',   mult: 0.9,  blurb: 'A normal shul on a normal day.' },
+  { chazans: 3, name: 'Lightning', mult: 1.15, blurb: 'The chazan finishes Shemoneh Esrei before you find your seat.' },
+];
+
 const LEVELS = [
   {
     id: 1, title: 'Monday Morning', subtitle: 'Sheni: a simple weekday Shacharit',
@@ -95,7 +110,7 @@ const LEVELS = [
       'Click a congregant to walk over and talk to him. Hover to see who he is.',
       'Fill the Clipboard: a chazan, petichah, Kohen, Levi, Yisrael, hagbah and gelilah.',
       'During Kriyat HaTorah, stand at the bimah to call each aliyah.',
-      'Handle the bubbles: page numbers, siddurim (bookshelf), talkers.',
+      'Watch for 🙏 bubbles: someone wants a name in the Mi Shebeirach.',
       "Curveball: only 9 men inside. The 10th is by the door with one foot out…",
     ],
     slots: ['chazan_shacharit', 'petichah', 'kohen', 'levi', 'shlishi', 'hagbah', 'gelilah'],
@@ -114,17 +129,17 @@ const LEVELS = [
       { tribe: 'levi', arrive: [0, 8] },
       { tribe: 'yisrael', tags: ['canLead'], n: 2, arrive: [0, 8] },
       { tribe: 'yisrael', n: 3, arrive: [1, 12] },
-      { tribe: 'yisrael', tags: ['guest'], noTallit: true, arrive: [8, 12] },
+      { tribe: 'yisrael', tags: ['guest'], arrive: [8, 12] },
       { tribe: 'yisrael', tags: ['elderly'], arrive: [2, 10] },
       { tribe: 'yisrael', door: true },
       { kid: true, n: 1, arrive: [3, 10] },
     ],
-    events: { rate: 13, types: { page: 3, siddur: 2, talk: 2 } },
+    events: { rate: 20, types: { misheberach: 2, chiyuv: 1 } },
     scheduled: [],
   },
   {
     id: 2, title: 'Rosh Chodesh Thursday', subtitle: 'Hallel, Musaf, 4 aliyot, and a yahrzeit',
-    speed: 1.2, shabbat: false, candy: false, hints: true, parsha: 'Pinchas',
+    speed: 1.1, shabbat: false, candy: false, hints: true, parsha: 'Pinchas',
     blurb: "Rosh Chodesh falls on a Thursday. Two chazzanim, Hallel, four aliyot, and Reb Shimon has yahrzeit for his father.",
     news: [
       'Two amud slots: Shacharit and Musaf. A 🕯️ yahrzeit wants the Shacharit amud and an aliyah.',
@@ -132,7 +147,7 @@ const LEVELS = [
       "Curveball: there's no Levi in shul today. What does halacha say?",
       'Curveball: someone you assigned may have to leave early. Refill the slot!',
       'Curveball: the Torah might be rolled to the wrong place. Roll it to Pinchas.',
-      'New bubbles: 📱 phones, 🙏 Mi Shebeirach requests, 📘 chumashim.',
+      '🙋 Surprise news: people tell you mid-davening they have yahrzeit, a new baby, a bad back… Rethink the Clipboard!',
     ],
     slots: ['chazan_shacharit', 'petichah', 'kohen', 'levi', 'shlishi', 'revii', 'hagbah', 'gelilah', 'chazan_musaf'],
     stages: [
@@ -151,18 +166,18 @@ const LEVELS = [
       { tribe: 'yisrael', tags: ['canLead'], n: 2, arrive: [0, 10] },
       { tribe: 'yisrael', n: 7, arrive: [0, 14] },
       { tribe: 'yisrael', tags: ['elderly'], arrive: [0, 10] },
-      { tribe: 'yisrael', tags: ['guest'], noTallit: true, arrive: [10, 16] },
+      { tribe: 'yisrael', tags: ['guest'], arrive: [10, 16] },
       { tribe: 'yisrael', n: 2, arrive: [30, 55] },
       { kid: true, n: 2, arrive: [3, 14] },
     ],
-    events: { rate: 14, types: { page: 3, siddur: 2, talk: 3, phone: 2, misheberach: 2, chumash: 1 } },
+    events: { rate: 18, types: { misheberach: 2, chiyuv: 2 } },
     scheduled: [
       { type: 'leaveEarly', stage: 'Hallel', delay: 4 },
     ],
   },
   {
     id: 3, title: 'Shabbat Morning', subtitle: '7 aliyot, Maftir, Haftarah, drasha, Musaf',
-    speed: 1.35, shabbat: true, candy: false, hints: false, parsha: 'Chayei Sarah',
+    speed: 1.2, shabbat: true, candy: false, hints: false, parsha: 'Chayei Sarah',
     blurb: 'A regular Shabbat. A full shul, seven aliyot plus Maftir, a new father, an out-of-town guest, and a Rabbi who likes a long drasha.',
     news: [
       'Seven aliyot plus Maftir. Line up the Maftir BEFORE the Torah comes out, so he can prepare (📜 = knows the haftarah already).',
@@ -192,14 +207,14 @@ const LEVELS = [
       { tribe: 'yisrael', tags: ['canLead', 'knowsHaftarah'], arrive: [0, 10] },
       { tribe: 'yisrael', tags: ['canLead'], n: 2, arrive: [0, 12] },
       { tribe: 'yisrael', tags: ['newFather'], wants: ['aliyah'], arrive: [4, 14] },
-      { tribe: 'yisrael', tags: ['guest'], wants: ['honor'], noTallit: true, arrive: [6, 16] },
+      { tribe: 'yisrael', tags: ['guest'], wants: ['honor'], arrive: [6, 16] },
       { tribe: 'yisrael', tags: ['elderly'], wants: ['honor'], arrive: [0, 8] },
       { tribe: 'yisrael', tags: ['sponsor'], arrive: [0, 12] },
       { tribe: 'yisrael', n: 11, arrive: [0, 18] },
       { tribe: 'yisrael', n: 3, arrive: [30, 60] },
       { kid: true, n: 4, arrive: [2, 18] },
     ],
-    events: { rate: 14, types: { page: 3, siddur: 2, talk: 3, phone: 2, misheberach: 2, chumash: 2, kid: 2 } },
+    events: { rate: 17, types: { misheberach: 2, chiyuv: 3 } },
     scheduled: [
       { type: 'seatFight', stage: 'Shacharit', delay: 10 },
       { type: 'kiddush', stage: 'Shacharit', delay: 18 },
@@ -208,14 +223,14 @@ const LEVELS = [
   },
   {
     id: 4, title: 'Bar Mitzvah Shabbat', subtitle: 'The whole mishpacha is here',
-    speed: 1.5, shabbat: true, candy: true, hints: false, parsha: 'Toldot',
+    speed: 1.3, shabbat: true, candy: true, hints: false, parsha: 'Toldot',
     blurb: "The Goldberg bar mitzvah! Too many relatives want aliyot. The Kohen grandfather has flown in. And every kid in the shul has a bag of candy.",
     news: [
       '🎉 The bar mitzvah boy MUST get Maftir. He has practiced for a year.',
       '👪 Family wants aliyot: father, Kohen grandfather, Levi uncle, cousins. Use + Hosafot wisely.',
       '🍬 Hit SIGNAL CANDY right after the haftarah\'s last bracha. Not before, not long after!',
       'Curveball: kids trying to throw candy early (stop them!).',
-      'More guests, more siddurim, chumashim and tallitot. More seat fights.',
+      'More guests and more seat fights over makom kavua.',
     ],
     slots: ['chazan_shacharit', 'petichah', 'kohen', 'levi', 'shlishi', 'revii', 'chamishi', 'shishi', 'shevii', 'maftir', 'hagbah', 'gelilah', 'chazan_musaf'],
     stages: [
@@ -241,13 +256,13 @@ const LEVELS = [
       { tribe: 'yisrael', tags: ['yahrzeit', 'canLead'], wants: ['aliyah'], arrive: [0, 8] },
       { tribe: 'yisrael', tags: ['newFather'], wants: ['aliyah'], arrive: [4, 14] },
       { tribe: 'yisrael', tags: ['canLead'], n: 2, arrive: [0, 12] },
-      { tribe: 'yisrael', tags: ['guest'], wants: ['honor'], noTallit: true, n: 2, arrive: [6, 18] },
+      { tribe: 'yisrael', tags: ['guest'], wants: ['honor'], n: 2, arrive: [6, 18] },
       { tribe: 'yisrael', tags: ['elderly'], arrive: [0, 8] },
       { tribe: 'yisrael', n: 10, arrive: [0, 18] },
-      { tribe: 'yisrael', tags: ['guest'], noTallit: true, n: 2, arrive: [25, 50] },
+      { tribe: 'yisrael', tags: ['guest'], n: 2, arrive: [25, 50] },
       { kid: true, n: 6, arrive: [2, 18] },
     ],
-    events: { rate: 13.5, types: { page: 2, siddur: 3, talk: 3, phone: 2, misheberach: 2, chumash: 3, kid: 3 } },
+    events: { rate: 16, types: { misheberach: 2, chiyuv: 3 } },
     scheduled: [
       { type: 'seatFight', stage: 'Shacharit', delay: 6 },
       { type: 'seatFight', stage: 'Shacharit', delay: 26 },
@@ -258,7 +273,7 @@ const LEVELS = [
   },
   {
     id: 5, title: 'Shabbat Rosh Chodesh Mega-Simcha', subtitle: 'Two Torahs. Aufruf. Bar Mitzvah. Yahrzeit. Chaos.',
-    speed: 1.7, shabbat: true, candy: true, hints: false, parsha: 'Vayetzei', parsha2: 'Pinchas',
+    speed: 1.4, shabbat: true, candy: true, hints: false, parsha: 'Vayetzei', parsha2: 'Pinchas',
     blurb: "Shabbat Rosh Chodesh with an aufruf AND a bar mitzvah, a yahrzeit, a new baby girl, and two Sifrei Torah. Good luck, gabbai.",
     news: [
       'TWO Sifrei Torah: 7 aliyot from the first, Maftir from the second (rolled to Pinchas!). Two hagbahs, two gelilahs.',
@@ -292,13 +307,13 @@ const LEVELS = [
       { tribe: 'yisrael', tags: ['newFather'], wants: ['aliyah'], arrive: [4, 16] },
       { tribe: 'levi', arrive: [0, 10] },
       { tribe: 'yisrael', tags: ['canLead', 'knowsHaftarah'], n: 2, arrive: [0, 12] },
-      { tribe: 'yisrael', tags: ['guest'], wants: ['honor'], noTallit: true, n: 2, arrive: [6, 18] },
+      { tribe: 'yisrael', tags: ['guest'], wants: ['honor'], n: 2, arrive: [6, 18] },
       { tribe: 'yisrael', tags: ['elderly'], wants: ['honor'], arrive: [0, 8] },
       { tribe: 'yisrael', n: 14, arrive: [0, 18] },
-      { tribe: 'yisrael', tags: ['guest'], noTallit: true, n: 2, arrive: [22, 45] },
+      { tribe: 'yisrael', tags: ['guest'], n: 2, arrive: [22, 45] },
       { kid: true, n: 8, arrive: [2, 18] },
     ],
-    events: { rate: 13, types: { page: 2, siddur: 3, talk: 3, phone: 3, misheberach: 2, chumash: 3, kid: 3 } },
+    events: { rate: 15, types: { misheberach: 2, chiyuv: 3 } },
     scheduled: [
       { type: 'seatFight', stage: 'Shacharit', delay: 5 },
       { type: 'seatFight', stage: 'Hallel', delay: 4 },

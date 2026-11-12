@@ -11,6 +11,7 @@ window.humanPlay = async function (levelIdx, opts = {}) {
     const ppl = G().people.filter(p => present(p) && !p.busy && !p.door);
     const free = ppl.filter(p => !G().slots.some(s => s.assignee === p.id && !s.done && s !== slot) && !(ALI.includes(slot.id) || slot.hosafa ? p.honors.some(h => ALI.includes(h) || h.startsWith('hosafa')) : false));
     let ok = free.filter(p => !H.validate(slot, p));
+    if (!ok.length) ok = ppl.filter(p => !H.validate(slot, p));
     if (slot.rule === 'levi' && !ok.length) { const k = H.slotById('kohen'); const kp = k && H.personById(k.doneBy || k.assignee); if (kp) ok = [kp]; }
     const wants = ok.filter(p => p.wants.some(w => !w.done && ((w.w === 'amud' && slot.kind === 'chazan') || (w.w === 'aliyah' && (['aliyah', 'maftir'].includes(slot.kind) || slot.hosafa) && slot.kind !== 'maftir') || (w.w === 'maftir' && slot.kind === 'maftir') || (w.w === 'kohen' && slot.id === 'kohen') || (w.w === 'honor' && ['petichah', 'gelilah', 'hagbah'].includes(slot.kind)))));
     wants.sort((a, b) => (b.tags.has('chatan') + b.tags.has('barmitzvah')) - (a.tags.has('chatan') + a.tags.has('barmitzvah')));
