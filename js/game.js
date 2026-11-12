@@ -271,9 +271,32 @@ function slotsOf(p) { return G.slots.filter(s => s.assignee === p.id); }
 const ALIYAH_KINDS = ['aliyah', 'maftir'];
 
 /* Returns an error string if giving this slot to p breaks halacha / common sense, else null. */
+/* Who was in shul when this slot's oleh was called up (SA 135:6: a Kohen who walks in after the
+   bimkom-Kohen has started his bracha doesn't stop him). Falls back to "right now". */
+/* The label shown for a slot, which changes when there's no Kohen (or no Levi) in shul. */
+function slotLabel(s) {
+  if (!s || !G) return s ? s.label : '';
+  if (s.id === 'kohen' && !firstAliyahIsKohen()) return 'Rishon (bimkom Kohen)';
+  if (s.id === 'levi') {
+    if (!firstAliyahIsKohen()) return 'Sheni (Yisrael, no Levi)';
+    if (!presence(s).leviim.length) return 'Levi (same Kohen again)';
+  }
+  return s.label;
+}
+function presence(slot) {
+  if (slot && slot.callCtx) return slot.callCtx;
+  const a = adultsPresent();
+  return { kohanim: a.filter(x => x.tribe === 'kohen'), leviim: a.filter(x => x.tribe === 'levi') };
+}
+/* Did the first aliyah go (or is it going) to a real Kohen? If not, "nitparda hachavila". */
+function firstAliyahIsKohen() {
+  const k = slotById('kohen'); if (!k) return true;
+  if (k.done) { const f = personById(k.doneBy); return !!f && f.tribe === 'kohen'; }
+  return presence(k).kohanim.length > 0;
+}
+/* Returns an error string if giving this slot to p breaks halacha / common sense, else null. */
 function validate(slot, p) {
-  const kohanim = adultsPresent().filter(x => x.tribe === 'kohen');
-  const leviim = adultsPresent().filter(x => x.tribe === 'levi');
+  const { kohanim, leviim } = presence(slot);
   if (p.kid && !['gelilah', 'petichah'].includes(slot.kind))
     return `${p.first} is under bar mitzvah. Kids can't get an aliyah, hagbah or lead davening (gelilah or petichah is perfect for a kid!).`;
   switch (slot.rule) {
@@ -282,14 +305,19 @@ function validate(slot, p) {
       break;
     case 'kohen':
       if (p.tribe !== 'kohen' && kohanim.length) return `There's a Kohen in shul (${kohanim[0].name}). The first aliyah must go to a Kohen.`;
-      if (p.tribe === 'levi' && !kohanim.length) return `With no Kohen present, a Yisrael (not a Levi) is called up in place of the Kohen.`;
-      break;
+      break; // no Kohen: a Yisrael (or, per the Rema, a Levi) is called "bimkom Kohen"
     case 'levi': {
+      const k = slotById('kohen');
+      if (!firstAliyahIsKohen()) {
+        // SA OC 135:6: with no Kohen, a Yisrael goes up in his place, "v'lo ya'aleh acharav Levi"
+        if (p.tribe === 'levi') return `There was no Kohen, so the first aliyah went to someone bimkom Kohen. Halacha (Shulchan Arukh 135:6): a Levi may NOT go up right after him, or people will think the first one was a Kohen. Give the second aliyah to a Yisrael.`;
+        if (p.tribe === 'kohen') return `A Kohen who arrived late can't take the second aliyah. With no Kohen at the start, the second aliyah goes to a Yisrael.`;
+        break;
+      }
       if (p.tribe === 'levi') break;
       if (leviim.length) return `There's a Levi in shul (${leviim[0].name}). The second aliyah belongs to a Levi.`;
-      const k = slotById('kohen');
-      const kohenOleh = k && (k.doneBy || k.assignee);
-      if (p.id !== kohenOleh) return `No Levi present: halacha says the SAME Kohen who got the first aliyah takes the Levi aliyah too.`;
+      const kohenOleh = k && (k.done ? k.doneBy : k.assignee);
+      if (p.id !== kohenOleh) return `No Levi present: halacha (Shulchan Arukh 135:8) says the SAME Kohen who got the first aliyah takes the Levi aliyah too, not a different Kohen or a Yisrael.`;
       break;
     }
     case 'yisrael':
@@ -303,7 +331,7 @@ function validate(slot, p) {
   }
   if (ALIYAH_KINDS.includes(slot.kind) || slot.hosafa) {
     const had = G.slots.filter(s => s !== slot && s.done && s.doneBy === p.id && (ALIYAH_KINDS.includes(s.kind) || s.hosafa));
-    const leviException = slot.rule === 'levi' && had.length === 1 && had[0].id === 'kohen';
+    const leviException = slot.rule === 'levi' && p.tribe === 'kohen' && had.length === 1 && had[0].id === 'kohen';
     if (had.length && !leviException) return `${p.name} already had an aliyah today (${had[0].label}). One aliyah per person.`;
   }
   return null;
@@ -480,6 +508,12 @@ function fireScheduled(ev) {
         if (p.seat && !p.seat.special) p.seat.taken = null;
         p.state = 'leaving'; walkTo(p, SPOT.door, true, () => { p.state = 'gone'; p.x = -100; });
         toast(`🚪 ${p.name} had to leave! ${lost.map(x => x.label).join(', ')} is now EMPTY. Refill it!`, 'bad');
+        const ks = slotById('kohen'), ls = slotById('levi');
+        if (p.tribe === 'kohen' && ks && !ks.done && !presence(null).kohanim.length) {
+          const lp = ls && !ls.done && ls.assignee && personById(ls.assignee);
+          if (lp && lp.tribe === 'levi') ls.assignee = null;
+          toast(`⚖️ No Kohen left in shul. A Yisrael (or a Levi) goes up first "bimkom Kohen", and then NO Levi may go up after him (Shulchan Arukh 135:6). ${lp && lp.tribe === 'levi' ? `${lp.name} can't have Levi anymore. ` : ''}The second aliyah now goes to a Yisrael.`, 'tip');
+        }
         Sound.alert(); ui.popupDirty = true;
       });
       return true;
@@ -511,6 +545,14 @@ function fireScheduled(ev) {
       k.state = 'arriving'; k.x = SPOT.door.x; k.y = SPOT.door.y;
       sendToSeat(k);
       toast(`🚶 A Kohen just walked in late: ${k.name}! If the Kohen aliyah hasn't been called yet, it's his.`, '');
+      const ks = slotById('kohen'), ls = slotById('levi');
+      if (ks && !ks.done && !ks.callCtx) {
+        if (ks.assignee && personById(ks.assignee).tribe !== 'kohen') ks.assignee = null;
+        const lp = ls && !ls.done && ls.assignee && personById(ls.assignee);
+        const leviHere = presence(null).leviim.length > 0;
+        if (lp && lp.tribe !== 'levi' && leviHere) ls.assignee = null;
+        toast(`⚖️ Now there IS a Kohen: the first aliyah goes to him, and the second goes back to a Levi${leviHere ? '' : ' (no Levi here, so the same Kohen takes it again)'}. Check your Clipboard!`, 'tip');
+      }
       Sound.alert();
       return true;
     }
@@ -674,12 +716,15 @@ function callUp(p) {
   const R = G.reading, slot = currentCallSlot();
   if (!slot || R.phase !== 'needCall' || G.wrongSpot) return;
   if (slot.assignee !== p.id) { slot.assignee = p.id; slot.assignedAtStage = G.stageIdx; slot.assignedAtHotzaah = true; }
+  slot.callCtx = null; slot.callCtx = presence(slot);
   R.oleh = p; R.phase = 'goingUp'; R.waitT = 0;
   p.busy = true; p.state = 'walking'; if (p.req && p.req.type !== 'leaving') p.req = null;
   const spot = slot.kind === 'hagbah' || slot.kind === 'gelilah' ? { x: 480, y: 286 } : SPOT.oleh;
   walkTo(p, spot, true, () => { p.state = 'atBimah'; R.phase = 'reading'; R.t = 0; onAliyahStart(slot, p); });
   Sound.click();
-  toast(`🗣️ "Ya'amod, ${p.first} ben ${pick(['Avraham', 'Yitzchak', 'Yaakov', 'Moshe', 'Dovid', 'Shlomo', 'Chaim'])}${slot.rule === 'kohen' && p.tribe === 'kohen' ? ' HaKohen' : slot.rule === 'levi' && p.tribe === 'levi' ? ' HaLevi' : ''}, ${slot.label}!"`, '');
+  const tribeWord = slot.rule === 'kohen' && p.tribe === 'kohen' ? ' HaKohen' : slot.rule === 'levi' && p.tribe === 'levi' ? ' HaLevi' : '';
+  const callWord = slot.rule === 'kohen' && p.tribe !== 'kohen' ? 'bimkom Kohen' : slot.rule === 'levi' && p.tribe !== 'levi' && p.tribe !== 'kohen' ? 'Sheni' : slotLabel(slot);
+  toast(`🗣️ "Ya'amod, ${p.first} ben ${pick(['Avraham', 'Yitzchak', 'Yaakov', 'Moshe', 'Dovid', 'Shlomo', 'Chaim'])}${tribeWord}, ${callWord}!"`, '');
   ui.popupDirty = true;
 }
 function onAliyahStart(slot, p) {
@@ -1237,7 +1282,7 @@ function drawHUD() {
     const s = currentCallSlot();
     if (G.wrongSpot) sub = '📜 Torah at the wrong spot! Roll it at the bimah';
     else if (G.pasul) sub = G.pasul.stage === 'aron' ? '✋ PASUL! Get another Torah from the Aron' : '📜 Bring the Torah to the bimah';
-    else if (G.reading.phase === 'needCall') sub = `🗣️ Call up: ${s ? s.label : ''}${atBimah() ? '' : ' (go to the bimah!)'}`;
+    else if (G.reading.phase === 'needCall') sub = `🗣️ Call up: ${s ? slotLabel(s) : ''}${atBimah() ? '' : ' (go to the bimah!)'}`;
     else if (G.reading.phase === 'goingUp') sub = `${G.reading.oleh.name} is walking up for ${s.label}`;
     else sub = `${s.label}: ${G.reading.oleh.name}`;
   }
@@ -1415,7 +1460,7 @@ function openPersonCard(p, refresh) {
       for (const s of groups[g]) {
         const err = G.L.hints ? validate(s, p) : null;
         const taken = s.assignee && personById(s.assignee);
-        const b = el('button', { class: err ? 'bad' : '', title: err || (taken ? `Currently: ${taken.name}` : '') }, s.label + (taken ? ' ↺' : ''));
+        const b = el('button', { class: err ? 'bad' : '', title: err || (taken ? `Currently: ${taken.name}` : '') }, slotLabel(s) + (taken ? ' ↺' : ''));
         b.addEventListener('click', () => { assign(s, p); });
         btns.append(b);
       }
@@ -1467,7 +1512,7 @@ function buildBimahPopup(pop) {
   if (R.phase !== 'needCall') {
     pop.append(el('div', { class: 'note' }, R.oleh ? `${slot.label}: ${R.oleh.name} ${R.phase === 'goingUp' ? 'is on his way up' : 'is up now'}.` : ''));
   } else if (!G.wrongSpot) {
-    const sec = el('div', { class: 'sec' }, el('div', { class: 'sec-t' }, 'Now calling: ' + slot.label));
+    const sec = el('div', { class: 'sec' }, el('div', { class: 'sec-t' }, 'Now calling: ' + slotLabel(slot)));
     const ap = slot.assignee && personById(slot.assignee);
     if (ap) {
       if (present(ap) && !ap.busy) sec.append(el('div', { class: 'btns' }, el('button', { class: 'go big', onclick: () => callUp(ap) }, `🗣️ Call up ${ap.name}`)));
@@ -1507,7 +1552,7 @@ function renderPanel() {
   cb.classList.toggle('hidden', !G.L.candy);
   cb.classList.toggle('hot', !!(G.candy && G.candy.phase === 'window'));
   const R = G.reading;
-  const sig = JSON.stringify([G.stageIdx, !!G.waiting, G.slots.map(s => [s.id, s.assignee, s.done]), R && [R.idx, R.phase], G.misheberach.length, G.announcements.length, G.gabbai.carrying, G.hosafot]);
+  const sig = JSON.stringify([firstAliyahIsKohen(), presence(null).leviim.length, G.stageIdx, !!G.waiting, G.slots.map(s => [s.id, s.assignee, s.done]), R && [R.idx, R.phase], G.misheberach.length, G.announcements.length, G.gabbai.carrying, G.hosafot]);
   if (sig === panelSig) return;
   panelSig = sig;
   // timeline
@@ -1530,7 +1575,7 @@ function renderPanel() {
       else urgent = G.stageIdx >= rIdx - 1;
     }
     const row = el('div', { class: 'slot' + (s.done ? ' done' : '') + (nowSlot === s ? ' now' : '') + (urgent ? ' urgent' : '') });
-    row.append(el('span', { class: 'sl', title: s.label }, s.label));
+    row.append(el('span', { class: 'sl', title: slotLabel(s) }, slotLabel(s)));
     row.append(el('span', { class: 'sn' + (p ? '' : ' empty') }, s.done && s.doneBy === -1 ? '(gabbai did it)' : p ? p.name + (present(p) ? '' : p.state === 'gone' ? ' (left!)' : ' (not here)') : '—'));
     if (!s.done && p) row.append(el('button', { class: 'x', title: 'Unassign', onclick: () => unassign(s) }, '✕'));
     if (!s.done && s.hosafa && !p) row.append(el('button', { class: 'x', title: 'Remove hosafa', onclick: () => removeHosafa(s) }, '🗑'));
@@ -1680,8 +1725,8 @@ function showHelp(which) {
   <h2>Halacha Cheat Sheet</h2>
   <table>
    <tr><th>Honor</th><th>Who can get it</th></tr>
-   <tr><td>Kohen (1st aliyah)</td><td>A Kohen. If no Kohen is present, a Yisrael is called in his place (not a Levi).</td></tr>
-   <tr><td>Levi (2nd aliyah)</td><td>A Levi. <b>If no Levi is present, the same Kohen gets it again.</b></td></tr>
+   <tr><td>Kohen (1st aliyah)</td><td>A Kohen. If no Kohen is present, a Yisrael is called up <b>"bimkom Kohen"</b> (the Rema allows a Levi too). (SA 135:6)</td></tr>
+   <tr><td>Levi (2nd aliyah)</td><td>A Levi. <b>If no Levi is present, the same Kohen gets it again</b>, not a different Kohen. (SA 135:8)<br><b>If there was no Kohen, NO Levi may go up second</b>, or people would think the first was a Kohen. The second aliyah goes to a Yisrael. (SA 135:6)</td></tr>
    <tr><td>Shlishi to Shevi'i</td><td>Yisraelim only. Never a Kohen or a Levi.</td></tr>
    <tr><td>Maftir / Hosafot</td><td>Anyone, including Kohanim and Leviim. Maftir needs to know (or prepare) the haftarah.</td></tr>
    <tr><td>Hagbah</td><td>A strong adult. Not the elderly.</td></tr>
@@ -1802,6 +1847,6 @@ requestAnimationFrame(frame);
 // debug hook for testing
 window.__gabbai = {
   get G() { return G; }, get progress() { return progress; }, ui, closePopup, LEVELS, startLevel, finishLevel, callUp, assign, slotById, personById, signalCandy,
-  doRequestAction, openScrollGame, scrollHere, correctReader, takeTorahFromAron, placeNewTorah, addHosafa, validate, setGabbaiTarget,
+  fireScheduled, slotLabel, presence, doRequestAction, openScrollGame, scrollHere, correctReader, takeTorahFromAron, placeNewTorah, addHosafa, validate, setGabbaiTarget,
   step(sec) { for (let i = 0; i < sec * 30 && G && !G.over; i++) update(1 / 30); render(); renderPanel(); },
 };

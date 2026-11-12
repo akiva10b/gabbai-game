@@ -18,8 +18,10 @@ davening running. Each level is a harder service.
 | **Chazan Speed** | The whole service runs at a speed of one, two or three chazans: 🎤 Leisurely (beginner), 🎤🎤 Regular, 🎤🎤🎤 Lightning. You start at one. **Every win adds a chazan.** You can always choose a slower speed on the menu. Higher levels are also more complex in themselves, so Level 5 at three chazans is the hardest game. |
 
 ### Halachic rules the game enforces (and explains when you break them)
-- **Kohen** aliyah goes to a Kohen. If no Kohen is present, a Yisrael may take it instead (*bimkom Kohen*).
-- **Levi** aliyah goes to a Levi. **If no Levi is present, the same Kohen gets the Levi aliyah too.**
+- **Kohen** aliyah goes to a Kohen. If no Kohen is present, a Yisrael is called *bimkom Kohen* (the Rema allows a Levi too). *(SA OC 135:6)*
+- **Levi** aliyah goes to a Levi. **If no Levi is present, the same Kohen gets the Levi aliyah too**, not a different Kohen. *(SA OC 135:8)*
+- **No Kohen means no Levi second:** after someone goes up *bimkom Kohen*, a Levi may not go up next, so people don't think the first was a Kohen. The second aliyah goes to a Yisrael. If the only Kohen walks out before the reading, the game resets this for you. *(SA OC 135:6, MB 23)*
+- A Kohen who walks in after the *bimkom Kohen* has started his bracha doesn't interrupt him. *(SA OC 135:6)*
 - Shlishi, Revi'i… Shevi'i go to Yisraelim. Never give these to a Kohen or Levi.
 - **Maftir** and **hosafot** (extra aliyot, Shabbat only) can go to anyone, Kohen and Levi included.
 - Nobody gets two aliyot (except the no-Levi case).
